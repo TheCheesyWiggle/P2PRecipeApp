@@ -82,11 +82,67 @@ async fn main() {
             tokio::spawn(fut);
         }))
         .build();
+
     //starts the swarm
     Swarm::listen_on(
         //lets os pick decide a port
         &mut swarm,
         "/ip4/0.0.0.0/tcp/0".parse().expect("Can get local socket"),
     ).expect("Can start swarm");
+
+    //allows the async reader to read the lines one by one
+    let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+
+    //event loop processes events from the swarm by listening through stdin
+    loop{
+        let evt = {
+            //select macro waits for several async processes and handles the first one that finishes
+            tokio::select!{
+                line = stdin.next_line() => Some(EventType::Input(line.expect("can get line").expect("can read line from stdin"))),
+                event = swarm.next() =>{
+                    info!("Unhandled Swarm event: {:?}",event);
+                    None
+                },
+                response = response_rcv.recv() => Some(EventType::Response(response.expect("Response exists"))),
+            }
+        };
+        //commands (user interaction)
+        if let Some(event) = evt {
+            //match statement checks if it is an input or response event
+            match event {
+                EventType::Response(resp) => {}
+                //if its a input event match again to verify the command
+                EventType::Input(line) => match line.as_str() {
+                    "ls p" => handle_list_peers(&mut swarm).await,
+                    cmd if cmd.starts_with("ls r") => handle_list_recipes(cmd, &mut swarm).await,
+                    cmd if cmd.starts_with("create r") => handle_create_recipes(cmd).await,
+                    cmd if cmd.starts_with("publish r") => handle_publish_recipes(cmd).await,
+                    _ => panic!("Unknown command"),
+                }
+            }
+        }
+    }
+}
+//logic for listing peers
+async fn handle_list_peers(swarm: &mut Swarm<RecipeBehaviour>){
+    info!("Discovered peers:");
+    //mdns shows all discovered nodes
+    let nodes = swarm.mdns.discovered_nodes();
+    let mut unique_peers = HashSet::new();
+    //adds peers from list to hash set data structure which prevents duplicate values
+    for peer in nodes {
+        unique_peers.insert(peer);
+    }
+    //iterates through the hashset and displays the peers
+    unique_peers.iter().for_each(|p| info!("{}",p));
+
+}
+async fn handle_list_recipes(){
+
+}
+async fn handle_publish_recipes(){
+
+}
+async fn handle_create_recipes(){
 
 }
