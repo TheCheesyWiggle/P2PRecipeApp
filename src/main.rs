@@ -6,7 +6,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync 
 
 static KEYS: Lazy<identity::Keypair> = Lazy::new(|| identity::Keypair::generate_ed25519());
 static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(KEYS.public()));
-//allows for subscriptions to specific computers??
+//allows for subscriptions to specific peers??
 static TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("recipes"));
 
 type Recipes = Vec<Recipe>;
