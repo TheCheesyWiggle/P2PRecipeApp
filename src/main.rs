@@ -1,3 +1,6 @@
+extern crate core;
+
+use core::panicking::panic;
 use std::collections::HashSet;
 use libp2p::core::transport::upgrade;
 use libp2p::futures::future::Lazy;
@@ -54,7 +57,7 @@ enum EventType {
 }
 #[tokio]
 async fn main() {
-    //initalizes logger
+    //initializes logger
     pretty_env_logger::init();
 
     info!("Peer ID: {}",PEER_ID.clone());
@@ -147,12 +150,53 @@ async fn handle_list_peers(swarm: &mut Swarm<RecipeBehaviour>){
     unique_peers.iter().for_each(|p| info!("{}",p));
 
 }
-async fn handle_list_recipes(){
+//logic for handling recipe creation
+async fn handle_create_recipes(cmd :&str){
+    //removes the command from the string
+    if let Some(rest) = cmd.strip_prefix("create r"){
+        //splits arguments and stores their references in a array
+        let elements: Vec<&str> = rest.split("|").collect();
+        //Uses the len function to check number of args
+        if elements.len() < 3{
+            info!("too few arguments - Format: name|ingredients|instructions")
+        }
+        else {
+            //assigns varible names to arguments
+            let name = elements.get(0).expect("name is there");
+            let ingredients = elements.get(1).expect("ingredients are there");
+            let instructions = elements.get(2).expect("instructions are there");
+            //Uses Err enum to handle errors while creating recipes
+            if let  Err(e)= create_new_recipe(name,ingredients,instructions).await{
+                panic!("error creating recipe: {}", e);
+            };
+        }
+    }
+}
+//logic for creating a recipe
+async fn create_new_recipe(name :&str,ingredients:&str,instructions :&str){
 
 }
-async fn handle_publish_recipes(){
-
+//logic for handling recipe publication
+async fn handle_publish_recipes(cmd :&str){
+    //removes the command from the string
+    if let Some(rest) = cmd.strip_prefix("publish r"){
+        //match statement check validity of id
+        match rest.trim().parse::<usize>() {
+            //
+            Ok(id) =>{
+                //
+                if let Err(e) = publish_recipe(id).await{
+                    info!("error publishing recipe with id {}, {}", id, e);
+                }
+                else {
+                    info!("Successful publication with id {}",id);
+                }
+            }
+            //if id doesnt match it spits out error
+            Err(e)=> panic!("Invalid id {}, {}",rest.trim(),e),
+        }
+    }
 }
-async fn handle_create_recipes(){
+async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
 
 }
