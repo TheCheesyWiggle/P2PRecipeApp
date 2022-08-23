@@ -1,4 +1,14 @@
-use std::lazy::Lazy;
+use std::collections::HashSet;
+use libp2p::core::transport::upgrade;
+use libp2p::futures::future::Lazy;
+use libp2p::{identity, mplex, PeerId, Swarm};
+use libp2p::floodsub::{Floodsub, Topic};
+use libp2p::swarm::SwarmBuilder;
+use log::info;
+use tokio::io::AsyncBufReadExt;
+use tokio::sync::mpsc;
+use crate::identity::ed25519::Keypair;
+
 
 const STORAGE_FILE_PATH:&str = "./recipes.json";
 
@@ -51,7 +61,7 @@ async fn main() {
     //creates channel for communication within the application
     let (response_sender, mut response_crv) = mpsc::unbounded_channel();
     //keypair for the noise protocol
-    let auth_keys = Keypair::<X25519Spec>::new().into_authentic(&KEYS).expect("Can create auth keys");
+    let auth_keys = Keypair::new().into_authentic(&KEYS).expect("Can create auth keys");
 
     //Creates transport which is a feature of the libp2p framework
     let transport = TokioTcpConfig::new()
@@ -59,7 +69,7 @@ async fn main() {
         //in short handles protocol negotiation
         .upgrade(upgrade::Version::V1)
         //Authenticates that channel is secure with the noise XX handshake
-        .authenticate(NoiseConfig::xx(auth_keys).into_authenticated())
+        .authenticate(libp2p::noise::NoiseConfig::xx(auth_keys).into_authenticated())
         //multiplex transport negotiates multiple sub-streams and/or connections on the authenticated transport
         .multiplex(mplex::MplexConfig::new())
         //boxed allows only output and error types to be captured
