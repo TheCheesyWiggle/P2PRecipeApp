@@ -173,8 +173,42 @@ async fn handle_create_recipes(cmd :&str){
     }
 }
 //logic for creating a recipe
-async fn create_new_recipe(name :&str,ingredients:&str,instructions :&str){
+async fn create_new_recipe(name :&str,ingredients:&str,instructions :&str) -> Result<()>{
+    //
+    let mut local_recipes = read_local_recipes().await?;
+    //loops trough local recipes and assigns appropriate id
+    //if no local recipes gives id of 0
+    let new_id = match local_recipes.iter().max_by_key(|r| r.id){
+        Some(v) => v.id +1,
+        None => 0,
+    };
+    //pushes new recipe to local recipe content
+    //to_owned used to transfer ownership
+    local_recipes.push(Recipe{
+        id: new_id,
+        name: name.to_owned(),
+        ingredients: ingredients.to_owned(),
+        instructions: instructions.to_owned(),
+        public: false
+    });
 
+    write_local_recipes(&local_recipes).await?;
+    //feedback to the user
+    info!("Created Recipe:");
+    info!("Name: {:?}", name);
+    info!("Ingredients: {:?}",ingredients);
+    info!("Instructions: {:?}",instructions);
+    //
+    Ok(())
+}
+//logic for publishing a recipe
+async fn publish_recipe(id: usize)->Result<()>{
+    let mut local_recipes = read_local_recipes().await?;
+    //iterates through recipes and sets public flag to be true as the user intends to share it on the network
+    local_recipes.iter_mut().filter(|r| r.id == id).for_each(|r| r.public = true);
+    write_local_recipes(&local_recipes).await?;
+    //
+    Ok(())
 }
 //logic for handling recipe publication
 async fn handle_publish_recipes(cmd :&str){
