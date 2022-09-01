@@ -2,6 +2,7 @@ extern crate core;
 
 use core::panicking::panic;
 use std::collections::HashSet;
+use std::fs;
 use libp2p::core::transport::upgrade;
 use libp2p::futures::future::Lazy;
 use libp2p::{identity, mplex, PeerId, Swarm};
@@ -66,9 +67,9 @@ async fn main() {
     //keypair for the noise protocol
     let auth_keys = Keypair::new().into_authentic(&KEYS).expect("Can create auth keys");
 
-    //Creates transport which is a feature of the libp2p framework
+    //Creates transport which is a feature of the lib p2p framework
     let transport = TokioTcpConfig::new()
-        //Upgrades version of the transport once connection is established as Version 1 of the multistream-select protocol is the version that interacts with the noise protocol
+        //Upgrades version of the transport once connection is established as Version 1 of the multi-stream-select protocol is the version that interacts with the noise protocol
         //in short handles protocol negotiation
         .upgrade(upgrade::Version::V1)
         //Authenticates that channel is secure with the noise XX handshake
@@ -201,15 +202,6 @@ async fn create_new_recipe(name :&str,ingredients:&str,instructions :&str) -> Re
     //
     Ok(())
 }
-//logic for publishing a recipe
-async fn publish_recipe(id: usize)->Result<()>{
-    let mut local_recipes = read_local_recipes().await?;
-    //iterates through recipes and sets public flag to be true as the user intends to share it on the network
-    local_recipes.iter_mut().filter(|r| r.id == id).for_each(|r| r.public = true);
-    write_local_recipes(&local_recipes).await?;
-    //
-    Ok(())
-}
 //logic for handling recipe publication
 async fn handle_publish_recipes(cmd :&str){
     //removes the command from the string
@@ -230,6 +222,32 @@ async fn handle_publish_recipes(cmd :&str){
             Err(e)=> panic!("Invalid id {}, {}",rest.trim(),e),
         }
     }
+}
+//logic for publishing a recipe
+async fn publish_recipe(id: usize)->Result<()>{
+    let mut local_recipes = read_local_recipes().await?;
+    //iterates through recipes and sets public flag to be true as the user intends to share it on the network
+    local_recipes.iter_mut().filter(|r| r.id == id).for_each(|r| r.public = true);
+    write_local_recipes(&local_recipes).await?;
+    //
+    Ok(())
+}
+//logic for reading local recipes
+async fn read_local_recipes()-> Result<Recipes>{
+    //reads content from storage
+    let content = fs:read(STORAGE_FILE_PATH).await?;
+    //deserialized result
+    let result = serde_json::from_slice(&content)?;
+    Ok(Result)
+}
+//logic for writing local recipes
+async fn write_local_recipes(recipes: &Recipes)->Result<()>{
+    //
+    let json = serde_json::to_string(&recipes)?;
+    //
+    fs::write(STORAGE_FILE_PATH, &json).await?;
+    //
+    Ok(())
 }
 async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
 
