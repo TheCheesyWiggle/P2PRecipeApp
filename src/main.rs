@@ -175,7 +175,7 @@ async fn handle_create_recipes(cmd :&str){
 }
 //logic for creating a recipe
 async fn create_new_recipe(name :&str,ingredients:&str,instructions :&str) -> Result<()>{
-    //
+    //Creates a list of recipe structs
     let mut local_recipes = read_local_recipes().await?;
     //loops trough local recipes and assigns appropriate id
     //if no local recipes gives id of 0
@@ -242,13 +242,38 @@ async fn read_local_recipes()-> Result<Recipes>{
 }
 //logic for writing local recipes
 async fn write_local_recipes(recipes: &Recipes)->Result<()>{
-    //
+    //Converts json to plain text
     let json = serde_json::to_string(&recipes)?;
     //
     fs::write(STORAGE_FILE_PATH, &json).await?;
     //
     Ok(())
 }
+//logic for handling incoming recipe lists shared by other people
 async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
+    //Strips the command prefix as this isnt needed any more and its easier to parse the commmand without it
+    let rest = cmd.strip_prefix("ls r");
+    // Control flow to execute the correct code based off user command
+    match rest{
+        //lists all public recipes on the network
+        Some("all") => {
+            //
+            let req = ListRequest {
+                //
+                mode: ListMode::ALL,
+            };
+            //converts json to plaintext as json is harder to read for humans
+            let json =serde_json::to_string(&req).expect("can jsonify request");
+            //
+            swarm.floodsub.publish(TOPIC.clone(),json.as_bytes())
+        }
+        //
+        Some(recipes_peer_id) =>{
 
+        }
+        None =>{
+
+        }
+
+    }
 }
