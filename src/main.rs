@@ -238,7 +238,7 @@ async fn read_local_recipes()-> Result<Recipes>{
     let content = fs:read(STORAGE_FILE_PATH).await?;
     //deserialized result
     let result = serde_json::from_slice(&content)?;
-    Ok(Result)
+    Ok(result)
 }
 //logic for writing local recipes
 async fn write_local_recipes(recipes: &Recipes)->Result<()>{
@@ -251,7 +251,7 @@ async fn write_local_recipes(recipes: &Recipes)->Result<()>{
 }
 //logic for handling incoming recipe lists shared by other people
 async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
-    //Strips the command prefix as this isnt needed any more and its easier to parse the commmand without it
+    //Strips the command prefix as this isn't needed any more and its easier to parse the command without it
     let rest = cmd.strip_prefix("ls r");
     // Control flow to execute the correct code based off user command
     match rest{
