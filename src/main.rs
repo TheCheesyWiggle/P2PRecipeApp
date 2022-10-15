@@ -6,8 +6,9 @@ use std::fs;
 use libp2p::core::transport::upgrade;
 use libp2p::futures::future::Lazy;
 use libp2p::{identity, mplex, PeerId, Swarm};
-use libp2p::floodsub::{Floodsub, Topic};
-use libp2p::swarm::SwarmBuilder;
+use libp2p::floodsub::{Floodsub, FloodsubEvent, Topic};
+use libp2p::mdns::MdnsEvent;
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess, SwarmBuilder};
 use log::{error, info};
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
@@ -56,6 +57,87 @@ enum EventType {
     Response(ListResponse),
     Input(String),
 }
+
+#[derive(NetworkBehaviour)]
+struct RecipeBehaviour{
+    floodsub: Floodsub,
+    mdns: TokioMdns,
+    #[behaviour(ignore)]
+    response_sender: mspc::UnboundedSender<ListResponse>,
+}
+
+impl NetworkBehaviourEventProcess<MdnsEvent> for RecipeBehaviour{
+    //
+    fn inject_event(&mut self, event: MdnsEvent) {
+        match event {
+            //triggered when a new peer is discovered on the network
+            MdnsEvent::Discovered(discovered_list)=>{
+                //
+                for(peer, _addr) in discovered_list{
+                    //
+                    self.floodsub.add_node_to_partial_view(peer);
+                }
+            }
+            //triggered when an existing peer disappears
+            MdnsEvent::Expired(expired_list)=>{
+                //
+                for(peer, _addr) in expired_list{
+                    //
+                    if !self.mdns.has_node(&peer){
+                        //
+                        self.floodsub.remove_node_from_partial_view(&peer);
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl NetworkBehaviourEventProcess<FloodsubEvent> for RecipeBehaviour{
+    //
+    fn inject_event(&mut self, event: FloodsubEvent) {
+        match event {
+            //
+            FloodsubEvent::Message(msg) =>{
+                //
+                if let Ok(resp) = serde_json::from_slice::<ListResponse>(&msg.data){
+                    //
+                    if resp.receiver == PEER_ID.to_string(){
+                        //
+                        info!("Response from: {}",msg.source);
+                        //
+                        resp.data.iter().for_each(|r| info!("{:?}",r))
+                    }
+                }
+                //
+                else if let Ok(req) = serde_json::from_slice::<ListResponse>(&msg.data) {
+                    //
+                    match req.mode {
+                        ListMode::ALL => {
+                            info!("Received ALL req: {:?} from {:?}",req,msg.source);
+                            respond_with_public_recipes(
+                                self.response_sender.clone(),
+                                msg.source.to_string(),
+                            );
+                        }
+                        ListMode::One(ref peer_id) => {
+                            if peer_id == &PEER_ID.to_string(){
+                                info!("Received req: {:?} from {:?}",req,msg.source);
+                                respond_with_public_recipes(
+                                    Self.response_sender.clone(),
+                                    msg.source.to_string(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            //
+            _ => ()
+        }
+    }
+}
+
 #[tokio]
 async fn main() {
     //initializes logger
@@ -80,11 +162,11 @@ async fn main() {
         .boxed();
 
     //dictates network behaviour
-    let behaviour = RecipeBehaviour {
+    let mut behaviour = RecipeBehaviour {
         floodsub: Floodsub::new(PEER_ID.clone()),
         //mdns protocol automatically discovers peers and adds them too the network
         mdns: TokioMdns::new().expect("Can create mdns"),
-        repsonse_sender,
+        response_sender,
     };
 
     behaviour.floodsub.subscribe(TOPIC.clone());
@@ -244,9 +326,9 @@ async fn read_local_recipes()-> Result<Recipes>{
 async fn write_local_recipes(recipes: &Recipes)->Result<()>{
     //Converts json to plain text
     let json = serde_json::to_string(&recipes)?;
-    //
+    //Writes to local json file
     fs::write(STORAGE_FILE_PATH, &json).await?;
-    //
+    //Ends function
     Ok(())
 }
 //logic for handling incoming recipe lists shared by other people
@@ -254,43 +336,47 @@ async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
     //Strips the command prefix as this isn't needed any more and its easier to parse the command without it
     let rest = cmd.strip_prefix("ls r");
     // Control flow to execute the correct code based off user command
-    match rest{
+    match rest {
         //If "all" command is encountered
         Some("all") => {
             let req = ListRequest {
                 mode: ListMode::ALL,
             };
             //serializes to json
-            let json =serde_json::to_string(&req).expect("can jsonify request");
+            let json = serde_json::to_string(&req).expect("can jsonify request");
             //publish it to previously mentioned topic
-            swarm.floodsub.publish(TOPIC.clone(),json.as_bytes());
+            swarm.floodsub.publish(TOPIC.clone(), json.as_bytes());
         }
         //If peer id command is encountered
-        Some(recipes_peer_id) =>{
-            let req =  ListRequest{
+        Some(recipes_peer_id) => {
+            let req = ListRequest {
                 //
                 mode: ListMode::One(recipes_peer_id.to_owned()),
             };
             //serializes to json
             let json = serde_json::to_string(&req).expect("can jsonify request");
             //publishes it to previously mentioned topic
-            swarm.floodsub.publish(TOPIC.clone(),json.as_bytes());
+            swarm.floodsub.publish(TOPIC.clone(), json.as_bytes());
         }
         //if there is no command
-        None =>{
+        None => {
             //match statement catches error if no local recipes are present
             match read_local_recipes().await {
                 //Ok(v) is the situation where there are local recipes
-                Ok(v) =>{
+                Ok(v) => {
                     //outputs how many units there are in the local recipe list
                     info!("Local recipes ({})",v.len());
                     //iterates and outputs all local recipes to the user
                     v.iter().for_each(|r| info!("{:?}",r))
                 }
                 //out puts error if no recipes are found locally
-                Err(e)=> error!("error fetching local recipes: {}",e),
+                Err(e) => error!("error fetching local recipes: {}",e),
             }
         }
-
     }
 }
+
+
+
+
+
