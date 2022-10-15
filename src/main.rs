@@ -8,7 +8,7 @@ use libp2p::futures::future::Lazy;
 use libp2p::{identity, mplex, PeerId, Swarm};
 use libp2p::floodsub::{Floodsub, Topic};
 use libp2p::swarm::SwarmBuilder;
-use log::info;
+use log::{error, info};
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 use crate::identity::ed25519::Keypair;
@@ -16,7 +16,7 @@ use crate::identity::ed25519::Keypair;
 
 const STORAGE_FILE_PATH:&str = "./recipes.json";
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
+type Result<T> = std::result::Result<T, Box<dyn error::Error + Send + Sync + 'static>>;
 
 static KEYS: Lazy<identity::Keypair> = Lazy::new(|| identity::Keypair::generate_ed25519());
 static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(KEYS.public()));
@@ -255,25 +255,41 @@ async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
     let rest = cmd.strip_prefix("ls r");
     // Control flow to execute the correct code based off user command
     match rest{
-        //lists all public recipes on the network
+        //If "all" command is encountered
         Some("all") => {
-            //
             let req = ListRequest {
-                //
                 mode: ListMode::ALL,
             };
-            //converts json to plaintext as json is harder to read for humans
+            //serializes to json
             let json =serde_json::to_string(&req).expect("can jsonify request");
-            //
-            swarm.floodsub.publish(TOPIC.clone(),json.as_bytes())
+            //publish it to previously mentioned topic
+            swarm.floodsub.publish(TOPIC.clone(),json.as_bytes());
         }
-        //
+        //If peer id command is encountered
         Some(recipes_peer_id) =>{
-
+            let req =  ListRequest{
+                //
+                mode: ListMode::One(recipes_peer_id.to_owned()),
+            };
+            //serializes to json
+            let json = serde_json::to_string(&req).expect("can jsonify request");
+            //publishes it to previously mentioned topic
+            swarm.floodsub.publish(TOPIC.clone(),json.as_bytes());
         }
-        //
+        //if there is no command
         None =>{
-
+            //match statement catches error if no local recipes are present
+            match read_local_recipes().await {
+                //Ok(v) is the situation where there are local recipes
+                Ok(v) =>{
+                    //outputs how many units there are in the local recipe list
+                    info!("Local recipes ({})",v.len());
+                    //iterates and outputs all local recipes to the user
+                    v.iter().for_each(|r| info!("{:?}",r))
+                }
+                //out puts error if no recipes are found locally
+                Err(e)=> error!("error fetching local recipes: {}",e),
+            }
         }
 
     }
