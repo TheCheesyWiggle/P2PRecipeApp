@@ -113,18 +113,27 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for RecipeBehaviour{
                 else if let Ok(req) = serde_json::from_slice::<ListResponse>(&msg.data) {
                     //
                     match req.mode {
+                        //
                         ListMode::ALL => {
+                            //
                             info!("Received ALL req: {:?} from {:?}",req,msg.source);
                             respond_with_public_recipes(
+                                //
                                 self.response_sender.clone(),
+                                //
                                 msg.source.to_string(),
                             );
                         }
+                        //
                         ListMode::One(ref peer_id) => {
+                            //
                             if peer_id == &PEER_ID.to_string(){
+                                //
                                 info!("Received req: {:?} from {:?}",req,msg.source);
                                 respond_with_public_recipes(
+                                    //
                                     Self.response_sender.clone(),
+                                    //
                                     msg.source.to_string(),
                                 );
                             }
@@ -132,7 +141,7 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for RecipeBehaviour{
                     }
                 }
             }
-            //
+            //All other cases
             _ => ()
         }
     }
@@ -374,6 +383,32 @@ async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
             }
         }
     }
+}
+
+//
+fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>,receiver: String){
+    //
+    tokio::spawn(async move{
+        //
+        match read_local_recipes() {
+            //
+            Ok(recipes) =>{
+                //
+                let resp = ListResponse{
+                    mode: ListMode::ALL,
+                    receiver,
+                    data: recipes.into_iter().filter(|r| r.public).collect(),
+                };
+                //
+                if let Err(e) = sender.send(resp){
+                    error!("error sending response via channel, {}", e);
+                }
+
+            }
+            //
+            Err(e) => error!("error fetching local recipes to answer ALL request, {}", e),
+        }
+    });
 }
 
 
