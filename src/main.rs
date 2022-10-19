@@ -1,18 +1,22 @@
 extern crate core;
 
-use core::panicking::panic;
-use std::collections::HashSet;
-use std::fs;
-use libp2p::core::transport::upgrade;
-use libp2p::futures::future::Lazy;
-use libp2p::{identity, mplex, PeerId, Swarm};
-use libp2p::floodsub::{Floodsub, FloodsubEvent, Topic};
-use libp2p::mdns::MdnsEvent;
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess, SwarmBuilder};
+use libp2p::{
+    core::upgrade,
+    floodsub::{Floodsub, FloodsubEvent, Topic},
+    futures::StreamExt,
+    identity,
+    mdns::{Mdns, MdnsEvent},
+    mplex,
+    noise::{Keypair, NoiseConfig, X25519Spec},
+    swarm::{NetworkBehaviourEventProcess, Swarm, SwarmBuilder},
+    tcp::TokioTcpConfig,
+    NetworkBehaviour, PeerId, Transport,
+};
 use log::{error, info};
-use tokio::io::AsyncBufReadExt;
-use tokio::sync::mpsc;
-use crate::identity::ed25519::Keypair;
+use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use tokio::{fs, io::AsyncBufReadExt, sync::mpsc};
 
 
 const STORAGE_FILE_PATH:&str = "./recipes.json";
