@@ -19,16 +19,17 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, };
 use tokio::{fs, io::AsyncBufReadExt, sync::mpsc};
 
-
+//file path for recipes
 const STORAGE_FILE_PATH:&str = "./recipes.json";
-
+//creates Result type with box which doesnt use any heap memory if T is zero but allocates any variables onto the heap
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
-
+//generates keys
 static KEYS: Lazy<identity::Keypair> = Lazy::new(identity::Keypair::generate_ed25519);
+//creates peer id
 static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(KEYS.public()));
 //allows for subscriptions to specific peers??
 static TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("recipes"));
-
+//creates recipes type out of a list of the recipe type
 type Recipes = Vec<Recipe>;
 
 //defining structs
@@ -72,25 +73,26 @@ struct RecipeBehaviour{
     response_sender: mpsc::UnboundedSender<ListResponse>,
 }
 
+//network behaviour defines what bytes and where to send them from the local node for MDNS event
 impl NetworkBehaviourEventProcess<MdnsEvent> for RecipeBehaviour{
-    //
+    //defines how the message is send to the network behaviour from the network handler
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
             //triggered when a new peer is discovered on the network
             MdnsEvent::Discovered(discovered_list)=>{
-                //
+                //for every peer in the multi address in discovered list
                 for(peer, _addr) in discovered_list{
-                    //
+                    //adds node to the list of nodes to propagate messages to.
                     self.floodsub.add_node_to_partial_view(peer);
                 }
             }
-            //triggered when an existing peer disappears
+            //triggered when the records time to live expires and the address hasn’t been refreshed and is removed from the list
             MdnsEvent::Expired(expired_list)=>{
-                //
+                //for every peer in the multi address in expired list
                 for(peer, _addr) in expired_list{
-                    //
+                    //true if the given PeerId is in the list of nodes discovered through mDNS
                     if !self.mdns.has_node(&peer){
-                        //
+                        //removes node from the list of nodes to propagate messages to.
                         self.floodsub.remove_node_from_partial_view(&peer);
                     }
                 }
@@ -99,56 +101,49 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for RecipeBehaviour{
     }
 }
 
+//network behaviour defines what bytes and where to send them from the local node for FloodsubEvent
 impl NetworkBehaviourEventProcess<FloodsubEvent> for RecipeBehaviour{
-    //
+    //defines how the message is send to the network behaviour from the network handler
     fn inject_event(&mut self, event: FloodsubEvent) {
-        match event {
-            //
-            FloodsubEvent::Message(msg) =>{
-                //
-                if let Ok(resp) = serde_json::from_slice::<ListResponse>(&msg.data){
-                    //
-                    if resp.receiver == PEER_ID.to_string(){
-                        //
-                        info!("Response from: {}",msg.source);
-                        //
-                        resp.data.iter().for_each(|r| info!("{:?}",r))
-                    }
+        if let FloodsubEvent::Message(msg) = event {
+            //case for a response
+            if let Ok(resp) = serde_json::from_slice::<ListResponse>(&msg.data){
+                //checks if its indeed for local machine
+                if resp.receiver == PEER_ID.to_string(){
+                    //output
+                    info!("Response from: {}",msg.source);
+                    //iterates and outputs the data
+                    resp.data.iter().for_each(|r| info!("{:?}",r))
                 }
-                //
-                else if let Ok(req) = serde_json::from_slice::<ListResponse>(&msg.data) {
-                    //
-                    match req.mode {
-                        //
-                        ListMode::ALL => {
-                            //
-                            info!("Received ALL req: {:?} from {:?}",req,msg.source);
+            }
+            //case for request
+            else if let Ok(req) = serde_json::from_slice::<ListResponse>(&msg.data) {
+                //match statement to determine the mode
+                match req.mode {
+                    //mode all
+                    ListMode::ALL => {
+                        //outputs requests made
+                        info!("Received ALL req: {:?} from {:?}",req,msg.source);
+                        //responds with local messages
+                        respond_with_public_recipes(
+                            self.response_sender.clone(),
+                            msg.source.to_string(),
+                        );
+                    }
+                    //mode one
+                    ListMode::One(ref peer_id) => {
+                        //checks if request is for local machine
+                        if peer_id == &PEER_ID.to_string(){
+                            //outputs requests
+                            info!("Received req: {:?} from {:?}",req,msg.source);
                             respond_with_public_recipes(
-                                //
                                 self.response_sender.clone(),
-                                //
                                 msg.source.to_string(),
                             );
-                        }
-                        //
-                        ListMode::One(ref peer_id) => {
-                            //
-                            if peer_id == &PEER_ID.to_string(){
-                                //
-                                info!("Received req: {:?} from {:?}",req,msg.source);
-                                respond_with_public_recipes(
-                                    //
-                                    self.response_sender.clone(),
-                                    //
-                                    msg.source.to_string(),
-                                );
-                            }
                         }
                     }
                 }
             }
-            //All other cases
-            _ => ()
         }
     }
 }
@@ -391,24 +386,27 @@ async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
     }
 }
 
-//
+//logic for responding incoming recipe requests by other people
 fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>, receiver: String) {
-    //
+    //spawns new asynchronous task
     tokio::spawn(async move {
-        //
+        //check if there are even any recipes to respond with
         match read_local_recipes().await {
-            //
+            //case if recipe.json contains recipes
             Ok(recipes) => {
-                //
+                //creates a response variable
                 let resp = ListResponse {
                     mode: ListMode::ALL,
                     receiver,
+                    //iterates through all recipes adding then to the data section
                     data: recipes.into_iter().filter(|r| r.public).collect(),
                 };
+                //"if let Err(e) specifies what to do if the message doesnt send
                 if let Err(e) = sender.send(resp) {
                     error!("error sending response via channel, {}", e);
                 }
             }
+            //error case
             Err(e) => error!("error fetching local recipes to answer ALL request, {}", e),
         }
     });
