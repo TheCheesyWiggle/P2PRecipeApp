@@ -1,5 +1,6 @@
 extern crate core;
 
+//dependencies
 use libp2p::{
     core::upgrade,
     floodsub::{Floodsub, FloodsubEvent, Topic},
@@ -7,7 +8,7 @@ use libp2p::{
     identity,
     mdns::{Mdns, MdnsEvent},
     mplex,
-    noise::{Keypair, NoiseConfig, X25519Spec},
+    noise::{Keypair, X25519Spec},
     swarm::{NetworkBehaviourEventProcess, Swarm, SwarmBuilder},
     tcp::TokioTcpConfig,
     NetworkBehaviour, PeerId, Transport,
@@ -15,21 +16,22 @@ use libp2p::{
 use log::{error, info};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::{collections::HashSet, };
 use tokio::{fs, io::AsyncBufReadExt, sync::mpsc};
 
 
 const STORAGE_FILE_PATH:&str = "./recipes.json";
 
-type Result<T> = std::result::Result<T, Box<dyn error::Error + Send + Sync + 'static>>;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
 
-static KEYS: Lazy<identity::Keypair> = Lazy::new(|| identity::Keypair::generate_ed25519());
+static KEYS: Lazy<identity::Keypair> = Lazy::new(identity::Keypair::generate_ed25519);
 static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(KEYS.public()));
 //allows for subscriptions to specific peers??
 static TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("recipes"));
 
 type Recipes = Vec<Recipe>;
 
+//defining structs
 #[derive(Debug, Serialize, Deserialize)]
 struct Recipe {
     id: usize,
@@ -65,9 +67,9 @@ enum EventType {
 #[derive(NetworkBehaviour)]
 struct RecipeBehaviour{
     floodsub: Floodsub,
-    mdns: TokioMdns,
+    mdns: Mdns,
     #[behaviour(ignore)]
-    response_sender: mspc::UnboundedSender<ListResponse>,
+    response_sender: mpsc::UnboundedSender<ListResponse>,
 }
 
 impl NetworkBehaviourEventProcess<MdnsEvent> for RecipeBehaviour{
@@ -136,7 +138,7 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for RecipeBehaviour{
                                 info!("Received req: {:?} from {:?}",req,msg.source);
                                 respond_with_public_recipes(
                                     //
-                                    Self.response_sender.clone(),
+                                    self.response_sender.clone(),
                                     //
                                     msg.source.to_string(),
                                 );
@@ -151,16 +153,16 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for RecipeBehaviour{
     }
 }
 
-#[tokio]
+#[tokio::main]
 async fn main() {
     //initializes logger
     pretty_env_logger::init();
 
     info!("Peer ID: {}",PEER_ID.clone());
     //creates channel for communication within the application
-    let (response_sender, mut response_crv) = mpsc::unbounded_channel();
+    let (response_sender, mut response_rcv) = mpsc::unbounded_channel();
     //keypair for the noise protocol
-    let auth_keys = Keypair::new().into_authentic(&KEYS).expect("Can create auth keys");
+    let auth_keys = Keypair::<X25519Spec>::new().into_authentic(&KEYS).expect("Can create auth keys");
 
     //Creates transport which is a feature of the lib p2p framework
     let transport = TokioTcpConfig::new()
@@ -178,7 +180,7 @@ async fn main() {
     let mut behaviour = RecipeBehaviour {
         floodsub: Floodsub::new(PEER_ID.clone()),
         //mdns protocol automatically discovers peers and adds them too the network
-        mdns: TokioMdns::new().expect("Can create mdns"),
+        mdns: Mdns::new(Default::default()).await.expect("can create mdns"),
         response_sender,
     };
 
@@ -219,7 +221,7 @@ async fn main() {
         if let Some(event) = evt {
             //match statement checks if it is an input or response event
             match event {
-                EventType::Response(resp) => {}
+                EventType::Response(_resp) => {}
                 //if its a input event match again to verify the command
                 EventType::Input(line) => match line.as_str() {
                     "ls p" => handle_list_peers(&mut swarm).await,
@@ -236,7 +238,7 @@ async fn main() {
 async fn handle_list_peers(swarm: &mut Swarm<RecipeBehaviour>){
     info!("Discovered peers:");
     //mdns shows all discovered nodes
-    let nodes = swarm.mdns.discovered_nodes();
+    let nodes = swarm.behaviour().mdns.discovered_nodes();
     let mut unique_peers = HashSet::new();
     //adds peers from list to hash set data structure which prevents duplicate values
     for peer in nodes {
@@ -330,7 +332,7 @@ async fn publish_recipe(id: usize)->Result<()>{
 //logic for reading local recipes
 async fn read_local_recipes()-> Result<Recipes>{
     //reads content from storage
-    let content = fs:read(STORAGE_FILE_PATH).await?;
+    let content = fs::read(STORAGE_FILE_PATH).await?;
     //deserialized result
     let result = serde_json::from_slice(&content)?;
     Ok(result)
@@ -358,7 +360,7 @@ async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
             //serializes to json
             let json = serde_json::to_string(&req).expect("can jsonify request");
             //publish it to previously mentioned topic
-            swarm.floodsub.publish(TOPIC.clone(), json.as_bytes());
+            swarm.behaviour_mut().floodsub.publish(TOPIC.clone(), json.as_bytes());
         }
         //If peer id command is encountered
         Some(recipes_peer_id) => {
@@ -369,7 +371,7 @@ async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
             //serializes to json
             let json = serde_json::to_string(&req).expect("can jsonify request");
             //publishes it to previously mentioned topic
-            swarm.floodsub.publish(TOPIC.clone(), json.as_bytes());
+            swarm.behaviour_mut().floodsub.publish(TOPIC.clone(), json.as_bytes());
         }
         //if there is no command
         None => {
@@ -390,26 +392,23 @@ async fn handle_list_recipes(cmd :&str,swarm: &mut Swarm<RecipeBehaviour>){
 }
 
 //
-fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>,receiver: String){
+fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>, receiver: String) {
     //
-    tokio::spawn(async move{
+    tokio::spawn(async move {
         //
-        match read_local_recipes() {
+        match read_local_recipes().await {
             //
-            Ok(recipes) =>{
+            Ok(recipes) => {
                 //
-                let resp = ListResponse{
+                let resp = ListResponse {
                     mode: ListMode::ALL,
                     receiver,
                     data: recipes.into_iter().filter(|r| r.public).collect(),
                 };
-                //
-                if let Err(e) = sender.send(resp){
+                if let Err(e) = sender.send(resp) {
                     error!("error sending response via channel, {}", e);
                 }
-
             }
-            //
             Err(e) => error!("error fetching local recipes to answer ALL request, {}", e),
         }
     });
