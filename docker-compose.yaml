@@ -1,0 +1,40 @@
+version: "3.9"
+services:
+  peer1:
+    build: .
+    container_name: peer1
+    environment:
+      - P2P_PORT=4001
+      - BOOTSTRAP_PEERS=
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./data/peer1/recipes.json:/app/recipes.json
+    stdin_open: true
+    tty: true
+
+  peer2:
+    build: .
+    container_name: peer2
+    environment:
+      - P2P_PORT=4002
+      - BOOTSTRAP_PEERS=peer1:4001
+    ports:
+      - "4002:4002"
+    volumes:
+      - ./data/peer2/recipes.json:/app/recipes.json
+    stdin_open: true
+    tty: true
+
+  peer3:
+    build: .
+    container_name: peer3
+    environment:
+      - P2P_PORT=4003
+      - BOOTSTRAP_PEERS=peer1:4001
+    ports:
+      - "4003:4003"
+    volumes:
+      - ./data/peer3/recipes.json:/app/recipes.json
+    stdin_open: true
+    tty: true

@@ -11,7 +11,7 @@ use libp2p::{
     noise::{Keypair, X25519Spec},
     swarm::{NetworkBehaviourEventProcess, Swarm, SwarmBuilder},
     tcp::TokioTcpConfig,
-    NetworkBehaviour, PeerId, Transport,
+    NetworkBehaviour, PeerId, Transport, Multiaddr,
 };
 use log::{error, info};
 use once_cell::sync::Lazy;
@@ -189,12 +189,29 @@ async fn main() {
         }))
         .build();
 
-    //starts the swarm
-    Swarm::listen_on(
-        //lets os pick decide a port
-        &mut swarm,
-        "/ip4/0.0.0.0/tcp/0".parse().expect("Can get local socket"),
-    ).expect("Can start swarm");
+    // choose listen port from env (default 4001)
+    let port = std::env::var("P2P_PORT").unwrap_or_else(|_| "4001".to_string());
+    let listen_addr: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}", port)
+        .parse()
+        .expect("Can parse listen addr");
+    Swarm::listen_on(&mut swarm, listen_addr.clone()).expect("Can start swarm");
+
+    // Optional bootstrap: BOOTSTRAP_PEERS="peer1:4001,peer2:4002"
+    if let Ok(peers) = std::env::var("BOOTSTRAP_PEERS") {
+        for p in peers.split(',').filter(|s| !s.is_empty()) {
+            let mut parts = p.split(':');
+            if let (Some(host), Some(port)) = (parts.next(), parts.next()) {
+                let ma = format!("/dns4/{}/tcp/{}", host, port)
+                    .parse::<Multiaddr>()
+                    .expect("bad multiaddr");
+                match swarm.dial_addr(ma) {
+                    Ok(_) => info!("Dialed bootstrap peer {}", p),
+                    Err(e) => error!("failed to dial {}: {}", p, e),
+                }
+            }
+        }
+    }
+
 
     //allows the async reader to read the lines one by one
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
