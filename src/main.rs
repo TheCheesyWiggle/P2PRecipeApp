@@ -117,7 +117,7 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for RecipeBehaviour{
                 }
             }
             //case for request
-            else if let Ok(req) = serde_json::from_slice::<ListResponse>(&msg.data) {
+            else if let Ok(req) = serde_json::from_slice::<ListRequest>(&msg.data) {
                 //match statement to determine the mode
                 match req.mode {
                     //mode all
