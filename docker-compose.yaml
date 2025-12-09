@@ -1,40 +1,71 @@
 version: "3.9"
+
 services:
   peer1:
     build: .
     container_name: peer1
+    hostname: peer1
     environment:
       - P2P_PORT=4001
-      - BOOTSTRAP_PEERS=
+      - RUST_LOG=info
     ports:
       - "4001:4001"
     volumes:
-      - ./data/peer1/recipes.json:/app/recipes.json
+      - peer1-data:/app/data
     stdin_open: true
     tty: true
+    networks:
+      p2p-network:
+        ipv4_address: 172.25.0.10
 
   peer2:
     build: .
     container_name: peer2
+    hostname: peer2
     environment:
-      - P2P_PORT=4002
-      - BOOTSTRAP_PEERS=peer1:4001
+      - P2P_PORT=4001
+      - BOOTSTRAP_PEERS=/ip4/172.25.0.10/tcp/4001
+      - RUST_LOG=info
     ports:
-      - "4002:4002"
+      - "4002:4001"
     volumes:
-      - ./data/peer2/recipes.json:/app/recipes.json
+      - peer2-data:/app/data
     stdin_open: true
     tty: true
+    networks:
+      p2p-network:
+        ipv4_address: 172.25.0.11
+    depends_on:
+      - peer1
 
   peer3:
     build: .
     container_name: peer3
+    hostname: peer3
     environment:
-      - P2P_PORT=4003
-      - BOOTSTRAP_PEERS=peer1:4001
+      - P2P_PORT=4001
+      - BOOTSTRAP_PEERS=/ip4/172.25.0.10/tcp/4001
+      - RUST_LOG=info
     ports:
-      - "4003:4003"
+      - "4003:4001"
     volumes:
-      - ./data/peer3/recipes.json:/app/recipes.json
+      - peer3-data:/app/data
     stdin_open: true
     tty: true
+    networks:
+      p2p-network:
+        ipv4_address: 172.25.0.12
+    depends_on:
+      - peer1
+
+networks:
+  p2p-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+volumes:
+  peer1-data:
+  peer2-data:
+  peer3-data:
