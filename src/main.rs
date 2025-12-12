@@ -1,14 +1,11 @@
 use libp2p::{
-    // Moved out of swarm module
     SwarmBuilder,
     Swarm,
     PeerId,
     Multiaddr,
-
-    // New place for NetworkBehaviour
     swarm::{NetworkBehaviour, SwarmEvent},
-
-    // Transport stack
+    floodsub::{Floodsub, FloodsubEvent, Topic},
+    mdns,
     tcp,
     yamux,
     noise,
