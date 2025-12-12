@@ -9,9 +9,8 @@ use libp2p::{
     tcp,
     yamux,
     noise,
-    identity,
+    identity
 };
-
 
 use log::{error, info};
 use once_cell::sync::Lazy;
