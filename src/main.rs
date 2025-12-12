@@ -1,10 +1,10 @@
 use libp2p::{
-    SwarmBuilder,
     Swarm,
     PeerId,
     Multiaddr,
     swarm::{NetworkBehaviour, SwarmEvent},
     floodsub::{Floodsub, FloodsubEvent, Topic},
+    futures::StreamExt,
     mdns,
     tcp,
     yamux,
@@ -23,7 +23,7 @@ fn storage_file_path() -> String {
     std::env::var("STORAGE_FILE_PATH").unwrap_or_else(|_| "./recipes.json".to_string())
 }
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
+type RecipeResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
 
 static KEYS: Lazy<identity::Keypair> = Lazy::new(identity::Keypair::generate_ed25519);
 static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(KEYS.public()));
@@ -208,8 +208,8 @@ async fn main() {
         if let Some(event) = evt {
             match event {
                 EventType::Response(resp) => {
-                    let json = serde_json::to_vec(&resp).unwrap();
-                    swarm.behaviour_mut().floodsub.publish(TOPIC.clone(), &json);
+                    let json = serde_json::to_vec(&resp).expect("can jsonify request");
+                    swarm.behaviour_mut().floodsub.publish(TOPIC.clone(), json);
                 }
                 EventType::Input(line) => match line.as_str() {
                     "ls p" => handle_list_peers(&mut swarm).await,
@@ -253,7 +253,7 @@ async fn handle_create_recipes(cmd: &str) {
     }
 }
 
-async fn create_new_recipe(name: &str, ingredients: &str, instructions: &str) -> Result<()> {
+async fn create_new_recipe(name: &str, ingredients: &str, instructions: &str) -> RecipeResult<()> {
     let mut local_recipes = read_local_recipes().await?;
     let new_id = match local_recipes.iter().max_by_key(|r| r.id) {
         Some(v) => v.id + 1,
@@ -290,7 +290,7 @@ async fn handle_publish_recipes(cmd: &str) {
     }
 }
 
-async fn publish_recipe(id: usize) -> Result<()> {
+async fn publish_recipe(id: usize) -> RecipeResult<()> {
     let mut local_recipes = read_local_recipes().await?;
     local_recipes
         .iter_mut()
@@ -300,7 +300,7 @@ async fn publish_recipe(id: usize) -> Result<()> {
     Ok(())
 }
 
-async fn read_local_recipes() -> Result<Recipes> {
+async fn read_local_recipes() -> RecipeResult<Recipes> {
     let path = storage_file_path();
     match fs::read(&path).await {
         Ok(content) => {
@@ -312,7 +312,7 @@ async fn read_local_recipes() -> Result<Recipes> {
     }
 }
 
-async fn write_local_recipes(recipes: &Recipes) -> Result<()> {
+async fn write_local_recipes(recipes: &Recipes) -> RecipeResult<()> {
     let path = storage_file_path();
     let json = serde_json::to_string(&recipes)?;
     fs::write(&path, &json).await?;
@@ -330,7 +330,7 @@ async fn handle_list_recipes(cmd: &str, swarm: &mut Swarm<RecipeBehaviour>) {
             swarm
                 .behaviour_mut()
                 .floodsub
-                .publish(TOPIC.clone(), json.as_bytes());
+                .publish(TOPIC.clone(), json.into_bytes());
         }
         Some(recipes_peer_id) => {
             let req = ListRequest {
@@ -340,7 +340,7 @@ async fn handle_list_recipes(cmd: &str, swarm: &mut Swarm<RecipeBehaviour>) {
             swarm
                 .behaviour_mut()
                 .floodsub
-                .publish(TOPIC.clone(), json.as_bytes());
+                .publish(TOPIC.clone(), json.into_bytes());
         }
         None => match read_local_recipes().await {
             Ok(v) => {
