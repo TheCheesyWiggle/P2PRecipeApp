@@ -12,6 +12,11 @@ use libp2p::{
     identity
 };
 
+use clap::Parser;
+use crate::cli::Cli;
+use crate::commands::peers::PeerCommand;
+use crate::commands::Commands;
+
 use log::{error, info};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -137,6 +142,15 @@ async fn main() {
             .expect("Failed to create recipes.json");
     }
 
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::Peers(peer_cmd) => {
+            handle_peers_cli(peer_cmd, &mut swarm).await;
+            return;
+        }
+        _ => {}
+    }
+
     loop {
         let evt = {
             tokio::select! {
@@ -203,25 +217,6 @@ async fn main() {
                 response = response_rcv.recv() => Some(EventType::Response(response.expect("Response exists"))),
             }
         };
-
-        if let Some(event) = evt {
-            match event {
-                EventType::Response(resp) => {
-                    let json = serde_json::to_vec(&resp).expect("can jsonify request");
-                    swarm.behaviour_mut().floodsub.publish(TOPIC.clone(), json);
-                }
-                EventType::Input(line) => match line.as_str() {
-                    "ls p" => handle_list_peers(&mut swarm).await,
-                    cmd if cmd.starts_with("ls r") => handle_list_recipes(cmd, &mut swarm).await,
-                    cmd if cmd.starts_with("create r") => handle_create_recipes(cmd).await,
-                    cmd if cmd.starts_with("publish r") => handle_publish_recipes(cmd).await,
-                    _ => {
-                        info!("Unknown command: {}", line);
-                        info!("Available commands: ls p | ls r | ls r all | create r | publish r");
-                    }
-                },
-            }
-        }
     }
 }
 
@@ -367,4 +362,28 @@ fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>, rece
             Err(e) => error!("error fetching local recipes to answer ALL request, {}", e),
         }
     });
+}
+
+async fn handle_peers_cli(cmd: PeerCommand, swarm: &mut Swarm<RecipeBehaviour>) {
+    match cmd {
+        PeerCommand::List => {
+            handle_list_peers(swarm).await;
+        }
+        PeerCommand::Connect { peer_id } => {
+            if let Ok(addr) = peer_id.parse::<Multiaddr>() {
+                let _ = swarm.dial(addr);
+                info!("Dial initiated to {}", peer_id);
+            } else {
+                error!("Invalid multiaddr to connect: {}", peer_id);
+            }
+        }
+        PeerCommand::Disconnect { peer_id } => {
+            if let Ok(pid) = peer_id.parse::<PeerId>() {
+                swarm.behaviour_mut().floodsub.remove_node_from_partial_view(&pid);
+                info!("Disconnected {}", peer_id);
+            } else {
+                error!("Invalid peer id to disconnect: {}", peer_id);
+            }
+        }
+    }
 }

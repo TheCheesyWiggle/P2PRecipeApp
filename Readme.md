@@ -1,146 +1,119 @@
-# P2P Recipe App - Refactoring Checklist
+# P2P Recipe Sharing App
 
-## Critical Fixes
+A peer-to-peer distributed recipe-sharing system built in Rust. Nodes
+can store, replicate, and retrieve recipes over a lightweight TCP-based
+P2P protocol. The project includes full Docker support, multi-node
+Compose testing, and a clean multi-stage build.
 
-### Error Handling
-- [ ] Replace `panic!("Unknown command")` with `error!()` logging
-- [ ] Replace `panic!("Invalid id...")` in `handle_publish_recipes` with error return
-- [ ] Replace all `.expect()` calls in user input paths with proper `Result` handling
-- [ ] Add graceful handling for channel receiver closure in event loop
-- [ ] Wrap `response.expect("Response exists")` in proper error handling
+------------------------------------------------------------------------
 
-### File I/O Race Conditions
-- [ ] Add `Arc<Mutex<Recipes>>` or `Arc<RwLock<Recipes>>` for thread-safe recipe access
-- [ ] Refactor `read_local_recipes()` to use shared state instead of file reads
-- [ ] Refactor `write_local_recipes()` to use shared state with periodic persistence
-- [ ] Add file locking mechanism if keeping file-based approach
-- [ ] Implement atomic file writes (write to temp file, then rename)
+## Project Goals
 
-### Input Validation
-- [ ] Validate recipe name length (max 100 chars)
-- [ ] Validate ingredients length (max 1000 chars)
-- [ ] Validate instructions length (max 2000 chars)
-- [ ] Check for empty/whitespace-only inputs in `handle_create_recipes`
-- [ ] Sanitize inputs to prevent injection attacks
-- [ ] Add maximum recipe count limit per peer (prevent DoS)
-- [ ] Validate peer ID format in `ListMode::One`
+-   Build a minimal but functional P2P protocol in Rust
+-   Support recipe storage, retrieval, discovery, and propagation
+-   Run multiple nodes locally with Docker Compose
+-   Use a production-ready Dockerfile with efficient build caching
+-   Provide a scalable architecture suitable for future features
 
-### Network Security
-- [ ] Migrate from Floodsub to Gossipsub (Floodsub is deprecated)
-- [ ] Implement message signing using peer identity
-- [ ] Add message verification on receipt
-- [ ] Implement rate limiting for incoming requests
-- [ ] Add message size limits (prevent memory exhaustion)
-- [ ] Consider encrypting recipe content (optional, based on requirements)
+------------------------------------------------------------------------
 
-## High Priority
+# Project Plan
 
-### Command Parsing
-- [ ] Create `Command` enum with variants for each command type
-- [ ] Implement `FromStr` trait for `Command` enum
-- [ ] Replace string prefix matching with enum-based dispatch
-- [ ] Add command help/usage system
-- [ ] Handle unknown commands gracefully with suggestions
+## 1. MVP
 
-### Application Lifecycle
-- [ ] Add Ctrl+C signal handler for graceful shutdown
-- [ ] Implement proper cleanup in shutdown (close swarm, save data)
-- [ ] Add startup checks (file permissions, port availability)
-- [ ] Create initialization sequence with error recovery
-- [ ] Add "quit" or "exit" command
+### **1.1 Core Features**
 
-### Logging & Debugging
-- [ ] Log responses not meant for this peer (with debug level)
-- [ ] Add structured logging with different levels (trace, debug, info, warn, error)
-- [ ] Log all network events with timestamps
-- [ ] Add metrics collection (messages sent/received, peers discovered)
-- [ ] Improve bootstrap connection logging (track actual connection establishment)
+-   TCP peer listener
+-   Connect to initial peers
+-   Broadcast new recipes
+-   Store recipes in a JSON file
+-   Respond to GET/SET requests
 
-### User Feedback
-- [ ] Add confirmation messages for all operations
-- [ ] Show progress indicators for network operations
-- [ ] Display recipe count after create/publish operations
-- [ ] Add "recipe not found" messages with helpful suggestions
-- [ ] Show peer count in `ls p` command
+### **1.2 Rust Components**
 
-## Medium Priority
+-   `p2p/mod.rs` → message protocol (PING, STORE, GET, RECIPE)
+-   `storage.rs` → JSON file read/write
+-   `peer.rs` → manage peer list
+-   `server.rs` → TCP listener
+-   `client.rs` → outgoing messages
 
-### Code Organization
-- [ ] Split into multiple files (commands.rs, network.rs, storage.rs, types.rs)
-- [ ] Create dedicated `CommandHandler` struct
-- [ ] Extract network setup into separate function
-- [ ] Move all constants to a config module
-- [ ] Create `RecipeStore` abstraction for storage layer
+------------------------------------------------------------------------
 
-### Type Safety
-- [ ] Create NewType wrappers for `RecipeId`, `PeerId` strings
-- [ ] Add builder pattern for `Recipe` struct
-- [ ] Use `NonZeroUsize` for recipe IDs
-- [ ] Add validation methods to structs (e.g., `Recipe::validate()`)
-- [ ] Make `Recipe` fields private with getters
+## 2. Multi-Stage Dockerfile
 
-### Error Types
-- [ ] Create custom error enum (e.g., `RecipeError`)
-- [ ] Implement `std::error::Error` for custom errors
-- [ ] Add context to errors using libraries like `anyhow` or `thiserror`
-- [ ] Remove generic `Box<dyn Error>` in favor of specific types
-- [ ] Add error recovery strategies
+### Requirements:
 
-### Testing
-- [ ] Add unit tests for `create_new_recipe`
-- [ ] Add unit tests for `publish_recipe`
-- [ ] Add unit tests for command parsing
-- [ ] Add integration tests for network behavior
-- [ ] Mock file I/O for testing
-- [ ] Add property-based tests for recipe validation
-- [ ] Test concurrent access scenarios
+-   Cache dependencies correctly
+-   Avoid missing `src/main.rs` during `cargo fetch`
+-   Minimize final image size
 
-## Low Priority
+### Output:
 
-### Storage
-- [ ] Consider SQLite instead of JSON file
-- [ ] Add recipe versioning (track edits)
-- [ ] Implement recipe deletion command
-- [ ] Add recipe search functionality
-- [ ] Support recipe categories/tags
-- [ ] Add backup/export functionality
+-   Multi-stage **builder** (Rust)
+-   **runtime** (Debian slim) layer containing only the binary
+-   Includes SSL + CA certificates
 
-### Network Features
-- [ ] Implement peer reputation system
-- [ ] Add peer blacklisting/whitelisting
-- [ ] Cache received recipes to reduce network traffic
-- [ ] Add recipe update propagation
-- [ ] Implement request timeout handling
-- [ ] Add NAT traversal support
+------------------------------------------------------------------------
 
-### User Experience
-- [ ] Add interactive mode with readline support
-- [ ] Implement recipe editing command
-- [ ] Add recipe import/export (JSON, CSV)
-- [ ] Create CLI with proper argument parsing (using `clap`)
-- [ ] Add colored output for better readability
-- [ ] Show recipe preview in list view
+## 3. Build and Test With Docker Compose
 
-### Documentation
-- [ ] Add rustdoc comments to all public items
-- [ ] Create README with setup instructions
-- [ ] Document network protocol/message formats
-- [ ] Add architecture diagram
-- [ ] Create troubleshooting guide
-- [ ] Add examples directory with use cases
+### Compose Goals:
 
-### Performance
-- [ ] Profile and optimize hot paths
-- [ ] Implement lazy loading for large recipe lists
-- [ ] Add caching layer for frequently accessed recipes
-- [ ] Optimize serialization (consider bincode vs JSON)
-- [ ] Batch file writes to reduce I/O
+-   Run 3+ nodes
+-   Each node has its own data folder
+-   Nodes know each other using environment variables
+-   Expose ports but run isolated networks
 
-### Configuration
-- [ ] Move hardcoded values to config file
-- [ ] Support environment variables for all settings
-- [ ] Add command-line arguments for common options
-- [ ] Create default config with sensible values
-- [ ] Add config validation on startup
+### Example:
 
----
+    docker compose up --build
+
+Each container will run a P2P node that joins the network automatically.
+
+------------------------------------------------------------------------
+
+# Running the Project
+
+## 1. Build Docker image
+
+    docker build -t p2p-recipe .
+
+## 2. Run a single node
+
+    docker run -p 4001:4001 p2p-recipe
+
+## 3. Run multi-node network
+
+    docker compose up --build
+
+## 4. Check logs
+
+    docker compose logs -f peer1
+
+------------------------------------------------------------------------
+
+# Environment Variables
+
+  Variable              Description
+  --------------------- ----------------------------------------
+  `P2P_PORT`            Port to listen on
+  `STORAGE_FILE_PATH`   Path to recipes.json file
+  `PEERS`               Comma-separated list of peer addresses
+
+------------------------------------------------------------------------
+
+# Testing the P2P Network
+
+With Compose running:
+
+### Store a recipe:
+
+    echo '{"title":"Soup"}'   | nc localhost 4001
+
+### Retrieve a recipe:
+
+    echo 'GET Soup' | nc localhost 4002
+
+### Check replication:
+
+    docker exec peer3 cat /data/recipes.json
